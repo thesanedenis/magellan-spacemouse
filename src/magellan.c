@@ -1,138 +1,183 @@
 #include <stdio.h>
+#include <string.h>
 
 #include <bsp/board.h>
 #include <tusb.h>
+#include <pio_usb.h>
 
+#include <hardware/clocks.h>
 #include <hardware/gpio.h>
-#include <hardware/uart.h>
+#include <pico/multicore.h>
 #include <pico/stdio.h>
-
-#define SERIAL_MOUSE_RX_PIN 21
-#define SERIAL_MOUSE_TX_PIN 20
-#define SERIAL_MOUSE_CTS_PIN 26
-#define SERIAL_MOUSE_RTS_PIN 27
-#define SERIAL_MOUSE_UART uart1
 
 uint16_t trans_report[3];
 uint16_t rot_report[3];
 uint8_t buttons_report[6];
 
-uint8_t trans_pending = 0;
-uint8_t rot_pending = 0;
-uint8_t buttons_pending = 0;
+volatile bool trans_pending = false;
+volatile bool rot_pending = false;
+volatile bool buttons_pending = false;
 
+// Mapping for SpaceMouse Pro buttons (matching the serial version's intent)
 uint8_t button_bits[] = { 12, 13, 14, 15, 22, 25, 23, 24, 0, 1, 2, 4, 5, 8, 26 };
 
-int main() {
-    board_init();
-    tusb_init();
-    stdio_init_all();
+// Core1: handle host events
+void core1_main() {
+    sleep_ms(10);
 
-    printf("hello\n");
+    // Use tuh_configure() to pass pio configuration to the host stack
+    pio_usb_configuration_t pio_cfg = PIO_USB_DEFAULT_CONFIG;
+    pio_cfg.pin_dp = 0; // GPIO 0 is D+, GPIO 1 is D-
+    pio_cfg.pinout = PIO_USB_PINOUT_DPDM;
+    tuh_configure(1, TUH_CFGID_RPI_PIO_USB_CONFIGURATION, &pio_cfg);
 
-    gpio_set_function(SERIAL_MOUSE_RX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(SERIAL_MOUSE_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(SERIAL_MOUSE_CTS_PIN, GPIO_FUNC_UART);
-    gpio_set_function(SERIAL_MOUSE_RTS_PIN, GPIO_FUNC_UART);
-    uart_init(SERIAL_MOUSE_UART, 9600);
-    uart_set_hw_flow(SERIAL_MOUSE_UART, true, true);
-    uart_set_translate_crlf(SERIAL_MOUSE_UART, false);
-    uart_set_format(SERIAL_MOUSE_UART, 8, 1, UART_PARITY_NONE);  // docs say 2 stop bits
-
-    sleep_ms(500);
-    uint8_t init_buf[] = { '\r', 'v', 'Q', '\r', 'm', '3', '\r' };
-    uart_write_blocking(SERIAL_MOUSE_UART, init_buf, sizeof(init_buf));
-
-    uint8_t buf[64];
-    uint8_t idx = 0;
+    // To run USB SOF interrupt in core1, init host stack for pio_usb (roothub port1) on core1
+    tuh_init(1);
 
     while (true) {
-        tud_task();
+        tuh_task(); // tinyusb host task
+    }
+}
+
+// This is required for PIO-USB host to work with TinyUSB
+void irq_handler_fingerprint() {} // Placeholder for potential future use
+
+int main() {
+    // Sysclock should be multiple of 12MHz for PIO-USB.
+    set_sys_clock_khz(120000, true);
+
+    board_init();
+    stdio_init_all();
+
+    printf("SpaceMouse USB-to-USB Remapper started\n");
+
+    // Initialize device stack on native usb (roothub port0)
+    // It is important to init device BEFORE starting core1 to ensure interrupts are set up
+    tud_init(0);
+
+    multicore_reset_core1();
+    multicore_launch_core1(core1_main);
+
+    while (true) {
+        tud_task(); // tinyusb device task
+
         if (trans_pending && tud_hid_ready()) {
             tud_hid_report(1, trans_report, 6);
-            trans_pending = 0;
+            trans_pending = false;
         }
         if (rot_pending && tud_hid_ready()) {
             tud_hid_report(2, rot_report, 6);
-            rot_pending = 0;
+            rot_pending = false;
         }
         if (buttons_pending && tud_hid_ready()) {
             tud_hid_report(3, buttons_report, 6);
-            buttons_pending = 0;
-        }
-
-        if (uart_is_readable(SERIAL_MOUSE_UART)) {
-            char c = uart_getc(SERIAL_MOUSE_UART);
-            buf[idx] = c;
-            idx = (idx + 1) % sizeof(buf);
-            printf("%c", c);
-            if (c == '\r') {
-                printf("\n");
-
-                switch (buf[0]) {
-                    case 'd': {
-                        if (idx != 26) {
-                            break;
-                        }
-
-                        int16_t values[6];
-                        for (int i = 0; i < 6; i++) {
-                            values[i] = -32768;
-                            for (int j = 0; j < 4; j++) {
-                                values[i] += (buf[1 + i * 4 + 3 - j] & 0xf) << (4 * j);
-                            }
-
-                            printf("%d %d ", i, values[i]);
-                        }
-                        printf("\n");
-
-                        trans_report[0] = values[0];
-                        trans_report[1] = values[2];
-                        trans_report[2] = -values[1];
-                        rot_report[0] = values[3];
-                        rot_report[1] = values[5];
-                        rot_report[2] = -values[4];
-
-                        trans_pending = 1;
-                        rot_pending = 1;
-
-                        break;
-                    }
-                    case 'k': {
-                        if (idx != 5) {
-                            break;
-                        }
-                        uint16_t buttons = 0;
-                        for (int i = 0; i < 3; i++) {
-                            buttons |= (buf[1 + i] & 0x0f) << (4 * i);
-                        }
-                        printf("%04x\n", buttons);
-
-                        memset(buttons_report, 0, sizeof(buttons_report));
-
-                        for (int i = 0; i < 12; i++) {
-                            if (buttons & (1 << i)) {
-                                buttons_report[button_bits[i] / 8] |= 1 << (button_bits[i] % 8);
-                            }
-                        }
-
-                        buttons_pending = 1;
-                    }
-                    default:
-                        break;
-                }
-
-                idx = 0;
-            }
+            buttons_pending = false;
         }
     }
 
     return 0;
 }
 
+//--------------------------------------------------------------------+
+// USB Host HID Callbacks
+//--------------------------------------------------------------------+
+
+void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_report, uint16_t desc_len) {
+    (void)desc_report;
+    (void)desc_len;
+    printf("HID device mounted: dev_addr %u, instance %u\n", dev_addr, instance);
+    
+    // Start receiving reports
+    if (!tuh_hid_receive_report(dev_addr, instance)) {
+        printf("Error: cannot request report from dev %u instance %u\n", dev_addr, instance);
+    }
+}
+
+void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {
+    printf("HID device unmounted: dev_addr %u, instance %u\n", dev_addr, instance);
+}
+
+void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {
+    if (len == 0) return;
+
+    // Many 3Dconnexion devices use report IDs.
+    // If the report descriptor indicates no report ID, TinyUSB might omit the first byte.
+    // However, for SpaceMouse Plus USB, it usually has ID 1, 2, and 3.
+    
+    uint8_t report_id = report[0];
+    uint8_t const* data = report + 1;
+    uint16_t data_len = len - 1;
+
+    switch (report_id) {
+        case 1: // Translation
+            if (data_len >= 6) {
+                memcpy(trans_report, data, 6);
+                trans_pending = true;
+            }
+            break;
+
+        case 2: // Rotation
+            if (data_len >= 6) {
+                memcpy(rot_report, data, 6);
+                rot_pending = true;
+            }
+            break;
+
+        case 3: // Buttons
+            if (data_len >= 1) {
+                // The SpaceMouse Plus XT USB sends 2 or 3 bytes of buttons.
+                // We map them to the SpaceMouse Pro report structure.
+                memset(buttons_report, 0, sizeof(buttons_report));
+                
+                uint32_t buttons = 0;
+                if (data_len >= 3) {
+                    buttons = data[0] | (data[1] << 8) | (data[2] << 16);
+                } else if (data_len >= 2) {
+                    buttons = data[0] | (data[1] << 8);
+                } else {
+                    buttons = data[0];
+                }
+
+                // Map the first 15 bits using the button_bits table
+                for (int i = 0; i < 15; i++) {
+                    if (buttons & (1 << i)) {
+                        buttons_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
+                    }
+                }
+                buttons_pending = true;
+            }
+            break;
+
+        default:
+            // Some devices might not have report IDs, or use different ones.
+            // If it's a 6-byte report, it might be Translation or Rotation without ID.
+            // But we'll stick to 3Dconnexion standard for now.
+            break;
+    }
+
+    // Continue receiving reports
+    if (!tuh_hid_receive_report(dev_addr, instance)) {
+        printf("Error: cannot request report from dev %u instance %u\n", dev_addr, instance);
+    }
+}
+
+//--------------------------------------------------------------------+
+// USB Device HID Callbacks (PC side)
+//--------------------------------------------------------------------+
+
 void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize) {
+    (void) itf;
+    (void) report_id;
+    (void) report_type;
+    (void) buffer;
+    (void) bufsize;
 }
 
 uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen) {
+    (void) itf;
+    (void) report_id;
+    (void) report_type;
+    (void) buffer;
+    (void) reqlen;
     return 0;
 }
