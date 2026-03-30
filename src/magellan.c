@@ -28,6 +28,19 @@ volatile bool trans_pending = false;
 volatile bool rot_pending = false;
 volatile bool buttons_pending = false;
 
+#ifdef ENABLE_LONG_PRESS
+uint32_t host_buttons = 0;
+uint32_t last_host_buttons = 0;
+uint32_t press_start_ms[15] = {0};
+bool long_press_sent[15] = {false};
+const uint8_t button_to_key[] = {
+    HID_KEY_1, HID_KEY_2, HID_KEY_3, HID_KEY_4,
+    HID_KEY_5, HID_KEY_6, HID_KEY_7, HID_KEY_8,
+    HID_KEY_9, HID_KEY_0, HID_KEY_A, HID_KEY_B,
+    HID_KEY_C, HID_KEY_D, HID_KEY_E
+};
+#endif
+
 // Mapping for SpaceMouse Pro buttons (matching the serial version's intent)
 uint8_t button_bits[] = { 12, 13, 14, 15, 22, 25, 23, 24, 0, 1, 2, 4, 5, 8, 26 };
 
@@ -70,6 +83,40 @@ int main() {
 
     while (true) {
         tud_task(); // tinyusb device task
+
+#ifdef ENABLE_LONG_PRESS
+        static uint32_t last_check_ms = 0;
+        uint32_t now = to_ms_since_boot(get_absolute_time());
+        if (now - last_check_ms > 10) {
+            last_check_ms = now;
+            bool changed = false;
+            for (int i = 0; i < 15; i++) {
+                if ((host_buttons & (1 << i)) && !long_press_sent[i]) {
+                    if (now - press_start_ms[i] > 2000) {
+                        long_press_sent[i] = true;
+                        changed = true;
+                        
+                        // Send Keyboard report (Win+Alt+Key)
+                        // Report ID 32 (0x20) as defined in descriptors.c
+                        uint8_t kb_report[8] = {0};
+                        kb_report[0] = KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_LEFTALT;
+                        kb_report[2] = button_to_key[i];
+                        tud_hid_report(32, kb_report, 8);
+                    }
+                }
+            }
+            if (changed) {
+                // Re-calculate buttons_report to "release" the long-pressed button in SpaceMouse report
+                memset(buttons_report, 0, sizeof(buttons_report));
+                for (int i = 0; i < 15; i++) {
+                    if ((host_buttons & (1 << i)) && !long_press_sent[i]) {
+                        buttons_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
+                    }
+                }
+                buttons_pending = true;
+            }
+        }
+#endif
 
         if (trans_pending && tud_hid_ready()) {
             tud_hid_report(1, trans_report, 6);
@@ -148,9 +195,35 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                     buttons = data[0];
                 }
 
+#ifdef ENABLE_LONG_PRESS
+                host_buttons = buttons;
+                uint32_t now = to_ms_since_boot(get_absolute_time());
+                for (int i = 0; i < 15; i++) {
+                    bool is_pressed = (buttons & (1 << i));
+                    bool was_pressed = (last_host_buttons & (1 << i));
+                    
+                    if (is_pressed && !was_pressed) {
+                        press_start_ms[i] = now;
+                        long_press_sent[i] = false;
+                    } else if (!is_pressed && was_pressed) {
+                        if (long_press_sent[i]) {
+                            // Send Keyboard release
+                            uint8_t kb_release[8] = {0};
+                            tud_hid_report(32, kb_release, 8);
+                            long_press_sent[i] = false;
+                        }
+                    }
+                }
+                last_host_buttons = buttons;
+#endif
+
                 // Map the first 15 bits using the button_bits table
                 for (int i = 0; i < 15; i++) {
+#ifdef ENABLE_LONG_PRESS
+                    if ((buttons & (1 << i)) && !long_press_sent[i]) {
+#else
                     if (buttons & (1 << i)) {
+#endif
                         buttons_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
                     }
                 }

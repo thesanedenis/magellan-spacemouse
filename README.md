@@ -30,9 +30,27 @@ Install 3DxWare on your computer and enjoy.
 
 Buttons on the Magellan (`1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `*`) are mapped to the following buttons on the emulated SpaceMouse Pro: `1`, `2`, `3`, `4`, `Esc`, `Ctrl`, `Alt`, `Shift`, `Menu`. You can assign functions to them in 3Dconnexion's software. The two buttons to the left and right of the puck are the same as buttons `6` and `7`.
 
+## Long Press Feature
+
+This firmware supports an optional "Long Press" feature for the buttons. If a button is held for more than 2 seconds, the device will:
+1. "Release" the standard SpaceMouse button in the HID report to avoid conflicts.
+2. Send a Keyboard HID report with the combination `Win + Alt + <Button Key>`.
+
+This is useful for triggering global shortcuts or launching applications (like FreeCAD) in Windows.
+
+Mappings for long press:
+- Button 1 -> `Win + Alt + 1`
+- Button 2 -> `Win + Alt + 2`
+- ...
+- Button 8 -> `Win + Alt + 8`
+- Button * -> `Win + Alt + 9` (mapped to the 9th key in the internal table)
+
+Short presses (less than 2 seconds) continue to work as standard SpaceMouse buttons.
+
 ## How to compile the firmware
 
-```
+### Standard build
+```bash
 git clone https://github.com/jfedor2/magellan-spacemouse.git
 cd magellan-spacemouse
 git submodule update --init
@@ -40,5 +58,21 @@ mkdir build
 cd build
 cmake ..
 make
+```
+
+### Build with Long Press enabled
+To enable the long press feature, set the `MAGELLAN_LONG_PRESS_ENABLE` environment variable to `ON` or `1` before running `cmake`:
+
+```bash
+mkdir build
+cd build
+MAGELLAN_LONG_PRESS_ENABLE=ON cmake ..
+make
+```
+
+### Build for specific target
+By default, the target is `rp2040usb`. You can change it to `rp2040rs232` using:
+```bash
+cmake -DMAGELLAN_TARGET=rp2040rs232 ..
 ```
 
