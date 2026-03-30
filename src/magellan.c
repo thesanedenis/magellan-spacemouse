@@ -1,15 +1,25 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef MAGELLAN_TARGET_USB
 #include <bsp/board.h>
 #include <tusb.h>
 #include <pio_usb.h>
-
 #include <hardware/clocks.h>
 #include <hardware/gpio.h>
 #include <pico/multicore.h>
 #include <pico/stdio.h>
+#endif
 
+#ifdef MAGELLAN_TARGET_RS232
+#include "pico/stdlib.h"
+#include "pico/multicore.h"
+#include "hardware/uart.h"
+#include "hardware/irq.h"
+#include "tusb.h"
+#endif
+
+#ifdef MAGELLAN_TARGET_USB
 uint16_t trans_report[3];
 uint16_t rot_report[3];
 uint8_t buttons_report[6];
@@ -160,6 +170,49 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
         printf("Error: cannot request report from dev %u instance %u\n", dev_addr, instance);
     }
 }
+#endif
+
+#ifdef MAGELLAN_TARGET_RS232
+#define UART_ID uart1
+#define BAUD_RATE 9600
+#define DATA_BITS 8
+#define STOP_BITS 1
+#define PARITY    UART_PARITY_NONE
+#define UART_TX_PIN 4
+#define UART_RX_PIN 5
+
+// ... HID report descriptors and other necessary definitions will go here ...
+
+// Main application entry
+int main(void)
+{
+    board_init();
+    tusb_init();
+
+    // UART initialization
+    uart_init(UART_ID, BAUD_RATE);
+    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
+    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+    uart_set_hw_flow(UART_ID, false, false);
+    uart_set_format(UART_ID, DATA_BITS, STOP_BITS, PARITY);
+
+    printf("Magellan RS232 to USB adapter started\n");
+
+    while (1)
+    {
+        tud_task(); // TinyUSB device task
+
+        // Check for UART data and process it
+        if (uart_is_readable(UART_ID)) {
+            uint8_t ch = uart_getc(UART_ID);
+            // Process the received character from Magellan
+            // This is where the logic to parse the Magellan protocol will go
+        }
+    }
+
+    return 0;
+}
+#endif
 
 //--------------------------------------------------------------------+
 // USB Device HID Callbacks (PC side)
