@@ -19,18 +19,26 @@ volatile bool buttons_pending = false;
 
 uint8_t button_bits[] = { 12, 13, 14, 15, 22, 25, 23, 24, 0, 1, 2, 4, 5, 8, 26 };
 
+uint32_t current_buttons = 0;
+uint32_t star_press_ms = 0;
+bool star_active = false;
+
 int main(void)
 {
+    // Initialize USB only
     tusb_init();
 
+    // UART0 configuration (pins 0 and 1)
     uart_init(UART_ID, 9600);
     gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
     uart_set_hw_flow(UART_ID, false, false);
     uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
 
+    // Power stabilization
     sleep_ms(1000);
 
+    // Wake up Magellan and set to streaming mode
     uint8_t init_buf[] = { '\r', 'v', 'Q', '\r', 'm', '3', '\r' };
     uart_write_blocking(UART_ID, init_buf, sizeof(init_buf));
 
@@ -40,7 +48,36 @@ int main(void)
     while (1)
     {
         tud_task();
+        uint32_t now = to_ms_since_boot(get_absolute_time());
 
+        // Long press logic for '*' button (index 8 in current_buttons)
+        uint8_t new_report[6] = {0};
+        bool star_is_pressed = (current_buttons & (1 << 8)); 
+        
+        if (star_is_pressed) {
+            if (star_press_ms == 0) star_press_ms = now;
+            if (now - star_press_ms > 1000) star_active = true;
+        } else {
+            star_press_ms = 0;
+            star_active = false;
+        }
+
+        for (int i = 0; i < 15; i++) {
+            if (current_buttons & (1 << i)) {
+                if (i == 8) { // '*' button requires long press
+                    if (star_active) new_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
+                } else {
+                    new_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
+                }
+            }
+        }
+
+        if (memcmp(new_report, buttons_report, 6) != 0) {
+            memcpy(buttons_report, new_report, 6);
+            buttons_pending = true;
+        }
+
+        // HID Reporting logic
         if (tud_hid_ready()) {
             if (trans_pending) {
                 tud_hid_report(1, trans_report, 6);
@@ -54,40 +91,35 @@ int main(void)
             }
         }
 
+        // UART Parser (Original robust logic)
         while (uart_is_readable(UART_ID)) {
             uint8_t ch = uart_getc(UART_ID);
             buf[idx] = ch;
             idx = (idx + 1) % sizeof(buf);
             
             if (ch == '\r') {
-                if (idx >= 25 && buf[0] == 'd') {
-                    int16_t v[6];
+                if (idx >= 25 && buf[0] == 'd') { // Movement
+                    int16_t values[6];
                     for (int i = 0; i < 6; i++) {
-                        v[i] = -32768;
+                        values[i] = -32768;
                         for (int j = 0; j < 4; j++) {
-                            v[i] += (buf[1 + i * 4 + 3 - j] & 0xf) << (4 * j);
+                            values[i] += (buf[1 + i * 4 + 3 - j] & 0xf) << (4 * j);
                         }
                     }
-                    trans_report[0] = v[0];
-                    trans_report[1] = v[2];
-                    trans_report[2] = -v[1];
-                    rot_report[0] = v[3];
-                    rot_report[1] = v[5];
-                    rot_report[2] = -v[4];
+                    trans_report[0] = values[0];
+                    trans_report[1] = values[2];
+                    trans_report[2] = -values[1];
+                    rot_report[0] = values[3];
+                    rot_report[1] = values[5];
+                    rot_report[2] = -values[4];
                     trans_pending = true;
                     rot_pending = true;
-                } else if (idx >= 4 && buf[0] == 'k') {
-                    uint16_t buttons = 0;
-                    for (int i = 0; i < 3; i++) {
-                        buttons |= (buf[1 + i] & 0x0f) << (4 * i);
+                } else if (idx >= 4 && buf[0] == 'k') { // Buttons
+                    uint32_t b = 0;
+                    for (int i = 0; i < (idx - 2); i++) {
+                        b |= (uint32_t)(buf[1 + i] & 0x0F) << (4 * i);
                     }
-                    memset(buttons_report, 0, 6);
-                    for (int i = 0; i < 15; i++) {
-                        if (buttons & (1 << i)) {
-                            buttons_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
-                        }
-                    }
-                    buttons_pending = true;
+                    current_buttons = b;
                 }
                 idx = 0;
             }
