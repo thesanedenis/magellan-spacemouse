@@ -58,6 +58,10 @@ target_link_libraries(${MAGELLAN_TARGET}
     pico_stdlib
 )
 
+# Disable UART stdio to avoid conflict with our mouse on pins 0/1
+pico_enable_stdio_uart(${MAGELLAN_TARGET} 0)
+pico_enable_stdio_usb(${MAGELLAN_TARGET} 1)
+
 if (${MAGELLAN_TARGET} STREQUAL "rp2040usb")
     target_link_libraries(${MAGELLAN_TARGET}
         tinyusb_device
