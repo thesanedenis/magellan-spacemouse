@@ -60,7 +60,14 @@ target_link_libraries(${MAGELLAN_TARGET}
 
 # Disable UART stdio to avoid conflict with our mouse on pins 0/1
 pico_enable_stdio_uart(${MAGELLAN_TARGET} 0)
-pico_enable_stdio_usb(${MAGELLAN_TARGET} 1)
+
+if (${MAGELLAN_TARGET} STREQUAL "rp2040rs232")
+    # RS232 target can have USB stdio enabled for debug/stability
+    pico_enable_stdio_usb(${MAGELLAN_TARGET} 1)
+else()
+    # USB target uses PIO_USB host, must disable USB stdio to avoid conflict
+    pico_enable_stdio_usb(${MAGELLAN_TARGET} 0)
+endif()
 
 if (${MAGELLAN_TARGET} STREQUAL "rp2040usb")
     target_link_libraries(${MAGELLAN_TARGET}

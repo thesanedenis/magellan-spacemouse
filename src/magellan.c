@@ -8,6 +8,12 @@
 #define UART_ID uart0
 #define UART_TX_PIN 0
 #define UART_RX_PIN 1
+#else
+// Default target (Pico GPIO 20/21)
+#define UART_ID uart1
+#define UART_TX_PIN 20
+#define UART_RX_PIN 21
+#endif
 
 uint16_t trans_report[3];
 uint16_t rot_report[3];
@@ -28,7 +34,7 @@ int main(void)
     // Initialize USB only
     tusb_init();
 
-    // UART0 configuration (pins 0 and 1)
+    // UART configuration
     uart_init(UART_ID, 9600);
     gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
     gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
@@ -36,11 +42,15 @@ int main(void)
     uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
 
     // Power stabilization
-    sleep_ms(1000);
+    sleep_ms(1500);
 
     // Wake up Magellan and set to streaming mode
-    uint8_t init_buf[] = { '\r', 'v', 'Q', '\r', 'm', '3', '\r' };
-    uart_write_blocking(UART_ID, init_buf, sizeof(init_buf));
+    uart_puts(UART_ID, "\rvQ\r");
+    sleep_ms(100);
+    uart_puts(UART_ID, "m3\r");
+    sleep_ms(100);
+
+    uart_tx_wait_blocking(UART_ID);
 
     uint8_t buf[64];
     uint8_t idx = 0;
@@ -127,7 +137,11 @@ int main(void)
     }
     return 0;
 }
-#endif
 
 void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize) {}
 uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen) { return 0; }
+
+// TinyUSB Host callbacks (required by tinyusb_host library)
+void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {}
+void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* desc_report, uint16_t desc_len) {}
+void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t instance) {}
