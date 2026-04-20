@@ -41,16 +41,33 @@ int main(void)
     uart_set_hw_flow(UART_ID, false, false);
     uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
 
-    // Power stabilization
-    sleep_ms(1500);
+    // Power stabilization - very long wait to ensure internal Magellan caps are charged
+    sleep_ms(3000);
+
+    // Drain any garbage that might have been received during power-on
+    while (uart_is_readable(UART_ID)) {
+        uart_getc(UART_ID);
+    }
+
+    // Flush/Reset phase: send several carriage returns to clear Magellan's RX buffer
+    for (int i = 0; i < 5; i++) {
+        uart_puts(UART_ID, "\r");
+        sleep_ms(100);
+    }
 
     // Wake up Magellan and set to streaming mode
-    uart_puts(UART_ID, "\rvQ\r");
-    sleep_ms(100);
-    uart_puts(UART_ID, "m3\r");
-    sleep_ms(100);
+    // We send m3 multiple times with very long gaps to ensure one hits correctly
+    for (int i = 0; i < 3; i++) {
+        uart_puts(UART_ID, "m3\r");
+        sleep_ms(500);
+    }
 
     uart_tx_wait_blocking(UART_ID);
+
+    // Final drain before starting main loop
+    while (uart_is_readable(UART_ID)) {
+        uart_getc(UART_ID);
+    }
 
     uint8_t buf[64];
     uint8_t idx = 0;
