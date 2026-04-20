@@ -4,75 +4,80 @@
 
 This project lets you use an old serial Magellan/SpaceMouse controller with modern software on modern operating systems. It simulates a 3DConnexion SpaceMouse Pro, so it can be used with software like Fusion 360, 3ds Max, SolidWorks, Inventor, Maya and many others. No special software is required on the computer, apart from 3DxWare. From the computer's point of view, your old Magellan will look like a real SpaceMouse Pro connected over USB.
 
-You can either use the [RP2040-RS232](https://github.com/jfedor2/rp2040-rs232) adapter or you can make one yourself as described below. If you use the RP2040-RS232 adapter, the multi-firmware that comes with it includes the Magellan/SpaceMouse firmware. You can also just use the one linked here.
+## Features
+- **Auto-Initialization:** The firmware automatically sends wake-up commands to the Magellan upon power-up. No manual button combinations are needed to start the axes.
+- **Robust Startup:** Includes a "line-clearing" phase to handle power-on noise from old serial hardware.
+- **SpaceMouse Pro Emulation:** Works with official 3Dconnexion drivers.
 
-To make one yourself you will need:
+## Build Targets & Pinouts
 
-- Raspberry Pi Pico
-- [Pololu 23201a Serial Adapter](https://www.pololu.com/product/126)
-- null modem adapter and DB9 gender changer (either as two separate adapters or one that does both)
-- breadboard and some jumper wires
+Depending on your hardware setup, you should choose the appropriate build target.
 
-Make the following connections between the Pico and the serial adapter:
+### 1. Standard USB Target (`rp2040usb`)
+Use this for a standard Raspberry Pi Pico connected via USB.
 
-| Pico | serial adapter |
-| -----: | ------ |
-| 3V3 (pin 36) | VCC |
-| GND (pin 23) | GND |
-| GPIO20 (pin 26) | RX |
-| GPIO21 (pin 27) | TX |
-| GPIO26 (pin 31) | RTS |
-| GPIO27 (pin 32) | CTS |
+| Pico Pin | Function | Serial Adapter Pin |
+| :--- | :--- | :--- |
+| **3V3** (pin 36) | VCC | VCC |
+| **GND** (pin 23/38) | GND | GND |
+| **GPIO 20** (pin 26) | UART1 TX | RX |
+| **GPIO 21** (pin 27) | UART1 RX | TX |
 
-Flash the Pico with the [magellan.uf2](magellan.uf2) firmware the usual way: hold the BOOTSEL button while connecting the board to the computer, then copy the UF2 file to the USB drive that shows up.
+### 2. RS232 Adapter Target (`rp2040rs232`)
+Use this for dedicated RS232-to-Pico adapters (like RP2040-RS232) or when using GPIO 0/1.
 
-Install 3DxWare on your computer and enjoy.
+| Pico Pin | Function | Serial Adapter Pin |
+| :--- | :--- | :--- |
+| **3V3** (pin 36) | VCC | VCC |
+| **GND** (pin 23/38) | GND | GND |
+| **GPIO 0** (pin 1) | UART0 TX | RX |
+| **GPIO 1** (pin 2) | UART0 RX | TX |
 
-Buttons on the Magellan (`1`, `2`, `3`, `4`, `5`, `6`, `7`, `8`, `*`) are mapped to the following buttons on the emulated SpaceMouse Pro: `1`, `2`, `3`, `4`, `Esc`, `Ctrl`, `Alt`, `Shift`, `Menu`. You can assign functions to them in 3Dconnexion's software. The two buttons to the left and right of the puck are the same as buttons `6` and `7`.
+## Installation
+1. Flash the Pico with the appropriate `.uf2` file (e.g., `rp2040rs232.uf2`).
+2. Hold the **BOOTSEL** button while connecting the Pico to the computer.
+3. Copy the UF2 file to the USB drive that appears.
+4. Install **3DxWare** on your computer.
+
+## Button Mapping
+
+| Magellan Button | SpaceMouse Pro Action |
+| :--- | :--- |
+| **1 - 4** | Buttons 1, 2, 3, 4 |
+| **5** | Esc |
+| **6** (incl. side button) | Ctrl |
+| **7** (incl. side button) | Alt |
+| **8** | Shift |
+| **\*** | Menu |
+
+*Note: On older models, the buttons to the left and right of the puck are hardware-wired to buttons 6 and 7 respectively.*
 
 ## Long Press Feature
-
-This firmware supports an optional "Long Press" feature for the buttons. If a button is held for more than 2 seconds, the device will:
-1. "Release" the standard SpaceMouse button in the HID report to avoid conflicts.
-2. Send a Keyboard HID report with the combination `Win + Alt + <Button Key>`.
-
-This is useful for triggering global shortcuts or launching applications (like FreeCAD) in Windows.
-
-Mappings for long press:
-- Button 1 -> `Win + Alt + 1`
-- Button 2 -> `Win + Alt + 2`
-- ...
-- Button 8 -> `Win + Alt + 8`
-- Button * -> `Win + Alt + 9` (mapped to the 9th key in the internal table)
-
-Short presses (less than 2 seconds) continue to work as standard SpaceMouse buttons.
+If enabled, holding a button for > 1 second will send a `Win + Alt + <Number>` keyboard shortcut instead of the standard button action.
 
 ## How to compile the firmware
 
-### Standard build
+### Standard Build (USB)
 ```bash
 git clone https://github.com/jfedor2/magellan-spacemouse.git
 cd magellan-spacemouse
 git submodule update --init
 mkdir build
 cd build
-cmake ..
-make
+cmake -DMAGELLAN_TARGET=rp2040usb ..
+make -j$(nproc)
+```
+
+### RS232 Adapter Build
+```bash
+mkdir build_rs232
+cd build_rs232
+cmake -DMAGELLAN_TARGET=rp2040rs232 ..
+make -j$(nproc)
 ```
 
 ### Build with Long Press enabled
-To enable the long press feature, set the `MAGELLAN_LONG_PRESS_ENABLE` environment variable to `ON` or `1` before running `cmake`:
-
+Set the `MAGELLAN_LONG_PRESS_ENABLE` environment variable:
 ```bash
-mkdir build
-cd build
 MAGELLAN_LONG_PRESS_ENABLE=ON cmake ..
-make
 ```
-
-### Build for specific target
-By default, the target is `rp2040usb`. You can change it to `rp2040rs232` using:
-```bash
-cmake -DMAGELLAN_TARGET=rp2040rs232 ..
-```
-
