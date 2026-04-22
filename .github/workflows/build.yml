@@ -5,8 +5,8 @@ on:
     branches: 
     - main
     - master
-    - feature/usb-spacemouse-plus-xt-and-rs232
-    - feature/usb-spacemouse-plus-xt
+    - featrue/usb-spacemouse-plus-xt-and-rs232
+    - featrue/usb-spacemouse-plus-xt
   pull_request:
     branches: [ main, master ]
 
