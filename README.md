@@ -81,3 +81,5 @@ Set the `MAGELLAN_LONG_PRESS_ENABLE` environment variable:
 ```bash
 MAGELLAN_LONG_PRESS_ENABLE=ON cmake ..
 ```
+
+### ALL RIGHT 
