@@ -64,7 +64,7 @@ int main(void)
     uart_set_format(UART_ID, 8, 1, UART_PARITY_NONE);
 
     // Power stabilization - very long wait to ensure internal Magellan caps are charged
-    sleep_ms(3000);
+    sleep_ms(2000);
 
     // Drain any garbage that might have been received during power-on
     while (uart_is_readable(UART_ID)) {
