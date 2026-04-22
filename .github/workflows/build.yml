@@ -1,0 +1,51 @@
+name: CI Build
+
+on:
+  push:
+    branches: 
+    - main
+    - master
+    - feature/rs232-spacemouse-plus-xt
+    - featrue/usb-spacemouse-plus-xt
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pico_platform: [rp2040, rp2350]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v6
+      with:
+        submodules: recursive
+
+    - name: Install Toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib cmake ninja-build
+
+    - name: Configure CMake
+      run: |
+        cmake -S . -B build -G Ninja -DPICO_PLATFORM=${{ matrix.pico_platform }}
+
+    - name: Build
+      run: |
+        cmake --build build
+
+    - name: Run Tests
+      run: |
+        if [ -f build/CTestTestfile.cmake ]; then
+          cd build && ctest --output-on-failure
+        else
+          echo "No tests defined in CMakeLists.txt"
+        fi
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: magellan-usb-${{ matrix.pico_platform }}-uf2
+        path: build/magellan.uf2
