@@ -21,6 +21,10 @@ volatile bool buttons_pending = false;
 // Mapping for SpaceMouse Pro buttons (matching the serial version's intent)
 uint8_t button_bits[] = { 12, 13, 14, 15, 22, 25, 23, 24, 0, 1, 2, 4, 5, 8, 26 };
 
+uint32_t current_buttons = 0;
+uint32_t star_press_ms = 0;
+bool star_active = false;
+
 // Core1: handle host events
 void core1_main() {
     sleep_ms(10);
@@ -60,6 +64,35 @@ int main() {
 
     while (true) {
         tud_task(); // tinyusb device task
+
+        uint32_t now = to_ms_since_boot(get_absolute_time());
+
+        // Long press logic for '*' button (index 8 in current_buttons)
+        uint8_t new_report[6] = {0};
+        bool star_is_pressed = (current_buttons & (1 << 8)); 
+        
+        if (star_is_pressed) {
+            if (star_press_ms == 0) star_press_ms = now;
+            if (now - star_press_ms > 1000) star_active = true;
+        } else {
+            star_press_ms = 0;
+            star_active = false;
+        }
+
+        for (int i = 0; i < 15; i++) {
+            if (current_buttons & (1 << i)) {
+                if (i == 8) { // '*' button requires long press
+                    if (star_active) new_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
+                } else {
+                    new_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
+                }
+            }
+        }
+
+        if (memcmp(new_report, buttons_report, 6) != 0) {
+            memcpy(buttons_report, new_report, 6);
+            buttons_pending = true;
+        }
 
         if (trans_pending && tud_hid_ready()) {
             tud_hid_report(1, trans_report, 6);
@@ -126,9 +159,6 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
         case 3: // Buttons
             if (data_len >= 1) {
                 // The SpaceMouse Plus XT USB sends 2 or 3 bytes of buttons.
-                // We map them to the SpaceMouse Pro report structure.
-                memset(buttons_report, 0, sizeof(buttons_report));
-                
                 uint32_t buttons = 0;
                 if (data_len >= 3) {
                     buttons = data[0] | (data[1] << 8) | (data[2] << 16);
@@ -137,14 +167,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t cons
                 } else {
                     buttons = data[0];
                 }
-
-                // Map the first 15 bits using the button_bits table
-                for (int i = 0; i < 15; i++) {
-                    if (buttons & (1 << i)) {
-                        buttons_report[button_bits[i] / 8] |= (1 << (button_bits[i] % 8));
-                    }
-                }
-                buttons_pending = true;
+                current_buttons = buttons;
             }
             break;
 
