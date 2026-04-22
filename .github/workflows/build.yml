@@ -6,7 +6,6 @@ on:
     - main
     - master
     - featrue/usb-spacemouse-plus-xt-and-rs232
-    - featrue/usb-spacemouse-plus-xt
   pull_request:
     branches: [ main, master ]
 
@@ -15,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [rp2040usb, rp2040rs232]
+        target: [magellan-serial-uart1, magellan-serial-uart0]
 
     steps:
     - name: Checkout code
@@ -41,7 +40,7 @@ jobs:
         if [ -f build/CTestTestfile.cmake ]; then
           cd build && ctest --output-on-failure
         else
-          echo "No tests defined in CMakeLists.txt"
+          echo "No tests defined"
         fi
 
     - name: Upload Artifacts
