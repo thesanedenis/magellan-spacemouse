@@ -1,0 +1,48 @@
+name: CI Build
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [rp2040usb, rp2040rs232]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install Toolchain
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib cmake ninja-build
+
+    - name: Configure CMake
+      run: |
+        cmake -S . -B build -G Ninja -DMAGELLAN_TARGET=${{ matrix.target }}
+
+    - name: Build
+      run: |
+        cmake --build build
+
+    - name: Run Tests
+      run: |
+        # Checks if CTest is configured and runs tests if they exist
+        if [ -f build/CTestTestfile.cmake ]; then
+          cd build && ctest --output-on-failure
+        else
+          echo "No tests defined in CMakeLists.txt"
+        fi
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.target }}-uf2
+        path: build/${{ matrix.target }}.uf2
