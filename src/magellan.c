@@ -29,6 +29,28 @@ uint32_t current_buttons = 0;
 uint32_t star_press_ms = 0;
 bool star_active = false;
 
+void magellan_init(void) {
+    // Flush/Reset phase: send several carriage returns to clear Magellan's RX buffer
+    for (int i = 0; i < 5; i++) {
+        uart_puts(UART_ID, "\r");
+        sleep_ms(100);
+    }
+
+    // Wake up Magellan and set to streaming mode
+    // We send m3 multiple times with very long gaps to ensure one hits correctly
+    for (int i = 0; i < 3; i++) {
+        uart_puts(UART_ID, "m3\r");
+        sleep_ms(500);
+    }
+
+    uart_tx_wait_blocking(UART_ID);
+
+    // Final drain before starting
+    while (uart_is_readable(UART_ID)) {
+        uart_getc(UART_ID);
+    }
+}
+
 int main(void)
 {
     // Initialize USB only
@@ -49,25 +71,7 @@ int main(void)
         uart_getc(UART_ID);
     }
 
-    // Flush/Reset phase: send several carriage returns to clear Magellan's RX buffer
-    for (int i = 0; i < 5; i++) {
-        uart_puts(UART_ID, "\r");
-        sleep_ms(100);
-    }
-
-    // Wake up Magellan and set to streaming mode
-    // We send m3 multiple times with very long gaps to ensure one hits correctly
-    for (int i = 0; i < 3; i++) {
-        uart_puts(UART_ID, "m3\r");
-        sleep_ms(500);
-    }
-
-    uart_tx_wait_blocking(UART_ID);
-
-    // Final drain before starting main loop
-    while (uart_is_readable(UART_ID)) {
-        uart_getc(UART_ID);
-    }
+    magellan_init();
 
     uint8_t buf[64];
     uint8_t idx = 0;
@@ -157,6 +161,15 @@ int main(void)
 
 void tud_hid_set_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t const* buffer, uint16_t bufsize) {}
 uint16_t tud_hid_get_report_cb(uint8_t itf, uint8_t report_id, hid_report_type_t report_type, uint8_t* buffer, uint16_t reqlen) { return 0; }
+
+// TinyUSB Device callbacks for re-initialization on mount/resume
+void tud_mount_cb(void) {
+    magellan_init();
+}
+
+void tud_resume_cb(void) {
+    magellan_init();
+}
 
 // TinyUSB Host callbacks (required by tinyusb_host library)
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t instance, uint8_t const* report, uint16_t len) {}
