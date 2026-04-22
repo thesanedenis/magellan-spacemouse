@@ -2,7 +2,11 @@ name: CI Build
 
 on:
   push:
-    branches: [ main, master ]
+    branches: 
+    - main
+    - master
+    - featrue/usb-spacemouse-plus-xt-and-rs232
+    - featrue/usb-spacemouse-plus-xt
   pull_request:
     branches: [ main, master ]
 
