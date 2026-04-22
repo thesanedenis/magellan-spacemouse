@@ -5,8 +5,8 @@ on:
     branches: 
     - main
     - master
-    - featrue/usb-spacemouse-plus-xt-and-rs232
-    - featrue/usb-spacemouse-plus-xt
+    - feature/usb-spacemouse-plus-xt-and-rs232
+    - feature/usb-spacemouse-plus-xt
   pull_request:
     branches: [ main, master ]
 
@@ -38,16 +38,14 @@ jobs:
 
     - name: Run Tests
       run: |
-        # Checks if CTest is configured and runs tests if they exist
         if [ -f build/CTestTestfile.cmake ]; then
           cd build && ctest --output-on-failure
         else
           echo "No tests defined in CMakeLists.txt"
         fi
 
-        - name: Upload Artifacts
-          uses: actions/upload-artifact@v7
-          with:
-            name: ${{ matrix.target }}-uf2
-            path: build/${{ matrix.target }}.uf2
-    
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ matrix.target }}-uf2
+        path: build/${{ matrix.target }}.uf2

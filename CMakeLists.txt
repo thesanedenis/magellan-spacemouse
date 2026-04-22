@@ -22,17 +22,9 @@ pico_sdk_init()
 
 if (${MAGELLAN_TARGET} STREQUAL "rp2040usb")
     add_compile_definitions(MAGELLAN_TARGET_USB)
-    include(FetchContent)
-    FetchContent_Declare(
-        pio_usb
-        GIT_REPOSITORY https://github.com/sekigon-gonnoc/Pico-PIO-USB
-        GIT_TAG main
-    )
-    FetchContent_MakeAvailable(pio_usb)
     add_executable(${MAGELLAN_TARGET}
         src/magellan.c
         src/descriptors.c
-        tinyusb/src/portable/raspberrypi/pio_usb/hcd_pio_usb.c
     )
 else()
     add_compile_definitions(MAGELLAN_TARGET_RS232)
@@ -72,9 +64,7 @@ endif()
 if (${MAGELLAN_TARGET} STREQUAL "rp2040usb")
     target_link_libraries(${MAGELLAN_TARGET}
         tinyusb_device
-        tinyusb_host
         tinyusb_board
-        pico_pio_usb
     )
 else()
     target_link_libraries(${MAGELLAN_TARGET}
